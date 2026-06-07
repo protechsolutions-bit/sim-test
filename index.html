@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Physics Simulation</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0f;
+      overflow: hidden;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      user-select: none;
+    }
+    canvas { display: block; }
+
+    /* ── Top-left label ─────────────────────────────────── */
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #e0e0f0;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #ui h1 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: #a0a8ff;
+      margin-bottom: 4px;
+    }
+    #ui p {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    /* ── Stats top-right ────────────────────────────────── */
+    #stats {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      color: #555;
+      font-size: 11px;
+      text-align: right;
+      z-index: 10;
+      pointer-events: none;
+      line-height: 2;
+    }
+    #stats span { color: #a0a8ff; }
+
+    /* ── Bottom action buttons ──────────────────────────── */
+    #controls {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+    button {
+      padding: 9px 18px;
+      border: 1px solid rgba(160, 168, 255, 0.25);
+      border-radius: 8px;
+      background: rgba(8, 8, 24, 0.88);
+      color: #a0a8ff;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: background 0.12s, border-color 0.12s;
+      white-space: nowrap;
+    }
+    button:hover {
+      background: rgba(160, 168, 255, 0.14);
+      border-color: rgba(160, 168, 255, 0.55);
+    }
+    button:active { opacity: 0.7; }
+
+    /* ── Slider panel ───────────────────────────────────── */
+    #panel {
+      position: fixed;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 210px;
+      background: rgba(8, 8, 24, 0.88);
+      border: 1px solid rgba(160, 168, 255, 0.18);
+      border-radius: 12px;
+      padding: 16px 18px;
+      z-index: 10;
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #panel h2 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #606080;
+      margin-bottom: -4px;
+    }
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #888;
+    }
+    .slider-label strong {
+      color: #c0c4f0;
+      font-weight: 500;
+    }
+    .slider-label .val {
+      color: #a0a8ff;
+      font-variant-numeric: tabular-nums;
+      min-width: 42px;
+      text-align: right;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(100, 108, 255, 0.25);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #a0a8ff;
+      border: 2px solid #0a0a1f;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { background: #c0c8ff; }
+    input[type=range]::-moz-range-thumb {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #a0a8ff;
+      border: 2px solid #0a0a1f;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Top-left info -->
+<div id="ui">
+  <h1>3D Physics Simulation</h1>
+  <p>Click scene to fire · Drag to orbit<br>
+     Scroll to zoom</p>
+</div>
+
+<!-- Top-right stats -->
+<div id="stats">
+  Bodies: <span id="stat-bodies">0</span><br>
+  FPS: <span id="stat-fps">0</span><br>
+  Gravity: <span id="stat-grav-display">9.81 m/s²</span>
+</div>
+
+<!-- Right-side sliders -->
+<div id="panel">
+  <h2>Physics Parameters</h2>
+
+  <div class="slider-row">
+    <div class="slider-label">
+      <strong>Gravity</strong>
+      <span class="val" id="lbl-gravity">9.81</span>
+    </div>
+    <input type="range" id="sl-gravity" min="0" max="30" step="0.1" value="9.81" />
+  </div>
+
+  <div class="slider-row">
+    <div class="slider-label">
+      <strong>Bounciness</strong>
+      <span class="val" id="lbl-restitution">0.35</span>
+    </div>
+    <input type="range" id="sl-restitution" min="0" max="1" step="0.01" value="0.35" />
+  </div>
+
+  <div class="slider-row">
+    <div class="slider-label">
+      <strong>Friction</strong>
+      <span class="val" id="lbl-friction">0.40</span>
+    </div>
+    <input type="range" id="sl-friction" min="0" max="1" step="0.01" value="0.40" />
+  </div>
+
+  <div class="slider-row">
+    <div class="slider-label">
+      <strong>Air Damping</strong>
+      <span class="val" id="lbl-damping">0.02</span>
+    </div>
+    <input type="range" id="sl-damping" min="0" max="0.5" step="0.005" value="0.02" />
+  </div>
+
+  <div class="slider-row">
+    <div class="slider-label">
+      <strong>Launch Speed</strong>
+      <span class="val" id="lbl-speed">18</span>
+    </div>
+    <input type="range" id="sl-speed" min="2" max="50" step="1" value="18" />
+  </div>
+</div>
+
+<!-- Bottom buttons -->
+<div id="controls">
+  <button id="btn-sphere">Drop Sphere</button>
+  <button id="btn-box">Drop Box</button>
+  <button id="btn-explosion">Explosion</button>
+  <button id="btn-clear">Clear</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.163.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.163.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── Cannon-es: destructure named exports ────────────────────────────────────
+const {
+  World, Vec3, Body, Sphere, Box, Plane,
+  SAPBroadphase, ContactMaterial, Material,
+} = await import('https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js');
+
+// ─── Physics state ────────────────────────────────────────────────────────────
+let gravityMag  = 9.81;
+let restitution = 0.35;
+let friction    = 0.40;
+let damping     = 0.02;
+let launchSpeed = 18;
+
+// ─── Three.js renderer ───────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+document.body.appendChild(renderer.domElement);
+
+// ─── Scene ────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0f);
+scene.fog = new THREE.Fog(0x0a0a0f, 60, 120);
+
+// ─── Camera ───────────────────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 18, 32);
+
+// ─── Orbit controls ───────────────────────────────────────────────────────────
+const orbitControls = new OrbitControls(camera, renderer.domElement);
+orbitControls.enableDamping = true;
+orbitControls.dampingFactor = 0.06;
+orbitControls.minDistance = 4;
+orbitControls.maxDistance = 80;
+orbitControls.maxPolarAngle = Math.PI / 2 - 0.02;
+orbitControls.target.set(0, 5, 0);
+
+// ─── Lighting ─────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x101030, 4));
+
+const sun = new THREE.DirectionalLight(0xfff5e0, 3);
+sun.position.set(15, 30, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far  = 120;
+sun.shadow.camera.left   = -30;
+sun.shadow.camera.right  =  30;
+sun.shadow.camera.top    =  30;
+sun.shadow.camera.bottom = -30;
+sun.shadow.bias = -0.001;
+scene.add(sun);
+
+const fillLight = new THREE.PointLight(0x4040ff, 2, 60);
+fillLight.position.set(-10, 8, -10);
+scene.add(fillLight);
+
+const rimLight = new THREE.PointLight(0xff6060, 1.5, 40);
+rimLight.position.set(10, 6, -15);
+scene.add(rimLight);
+
+// ─── Physics world ────────────────────────────────────────────────────────────
+const world = new World({ gravity: new Vec3(0, -gravityMag, 0) });
+world.broadphase = new SAPBroadphase(world);
+world.allowSleep  = true;
+world.defaultContactMaterial.friction    = friction;
+world.defaultContactMaterial.restitution = restitution;
+
+// ─── Ground ───────────────────────────────────────────────────────────────────
+const GROUND_Y = -2;
+
+const groundBody = new Body({ mass: 0, shape: new Plane() });
+groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+groundBody.position.set(0, GROUND_Y, 0);
+world.addBody(groundBody);
+
+// Visual grid + floor
+const gridHelper = new THREE.GridHelper(60, 30, 0x1a1a3a, 0x111128);
+gridHelper.position.y = GROUND_Y;
+scene.add(gridHelper);
+
+const groundMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({
+    color: 0x0d0d20, roughness: 0.9, metalness: 0.1,
+    transparent: true, opacity: 0.7,
+  })
+);
+groundMesh.rotation.x = -Math.PI / 2;
+groundMesh.position.y = GROUND_Y - 0.01;
+groundMesh.receiveShadow = true;
+scene.add(groundMesh);
+
+// Invisible boundary walls (keep objects in arena)
+function makeWall(px, py, pz, hx, hy, hz) {
+  const b = new Body({ mass: 0, shape: new Box(new Vec3(hx, hy, hz)) });
+  b.position.set(px, py, pz);
+  world.addBody(b);
+}
+makeWall(-22, 10,   0,  0.5, 15, 22);
+makeWall( 22, 10,   0,  0.5, 15, 22);
+makeWall(  0, 10, -22, 22,   15,  0.5);
+makeWall(  0, 10,  22, 22,   15,  0.5);
+
+// ─── Platforms ────────────────────────────────────────────────────────────────
+const platformDefs = [
+  { pos: [-8, 2, -5], half: [6, 0.4, 3] },
+  { pos: [ 8, 5, -2], half: [5, 0.4, 3] },
+  { pos: [ 0, 8,  6], half: [7, 0.4, 3] },
+];
+
+const platformMat = new THREE.MeshStandardMaterial({
+  color: 0x1a1a40, roughness: 0.6, metalness: 0.4, emissive: 0x050510,
+});
+
+platformDefs.forEach(({ pos: [px, py, pz], half: [hx, hy, hz] }) => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2), platformMat);
+  mesh.position.set(px, py, pz);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  scene.add(mesh);
+
+  const body = new Body({ mass: 0, shape: new Box(new Vec3(hx, hy, hz)) });
+  body.position.set(px, py, pz);
+  world.addBody(body);
+});
+
+// ─── Dynamic object pool ──────────────────────────────────────────────────────
+const objects = [];
+const MAX_OBJECTS = 80;
+
+const PALETTE = [
+  0x6060ff, 0xff4060, 0x40ffb0, 0xffb040,
+  0xff60c0, 0x60d0ff, 0xb0ff40, 0xff8040,
+];
+const randColor = () => PALETTE[Math.floor(Math.random() * PALETTE.length)];
+const ZERO_VEC  = new Vec3(0, 0, 0); // reusable relative-point for impulse
+
+function removeOldest() {
+  const obj = objects.shift();
+  if (!obj) return;
+  scene.remove(obj.mesh);
+  obj.mesh.geometry.dispose();
+  obj.mesh.material.dispose();
+  world.removeBody(obj.body);
+}
+
+function clearAll() {
+  while (objects.length) removeOldest();
+}
+
+function spawnSphere(px, py, pz, radius = 0.6, vx = 0, vy = 0, vz = 0) {
+  if (objects.length >= MAX_OBJECTS) removeOldest();
+
+  const color = randColor();
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 20, 20),
+    new THREE.MeshStandardMaterial({
+      color, roughness: 0.3, metalness: 0.6,
+      emissive: color, emissiveIntensity: 0.08,
+    })
+  );
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  const mass = (4 / 3) * Math.PI * radius ** 3 * 200;
+  const body = new Body({
+    mass,
+    shape: new Sphere(radius),
+    linearDamping:  damping,
+    angularDamping: damping * 2.5,
+    sleepSpeedLimit: 0.15,
+    sleepTimeLimit:  1.0,
+  });
+  body.position.set(px, py, pz);
+  body.velocity.set(vx, vy, vz);
+  world.addBody(body);
+
+  objects.push({ mesh, body });
+}
+
+function spawnBox(px, py, pz, hx = 0.5, hy = 0.5, hz = 0.5, vx = 0, vy = 0, vz = 0) {
+  if (objects.length >= MAX_OBJECTS) removeOldest();
+
+  const color = randColor();
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2),
+    new THREE.MeshStandardMaterial({
+      color, roughness: 0.4, metalness: 0.5,
+      emissive: color, emissiveIntensity: 0.06,
+    })
+  );
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  const mass = hx * hy * hz * 8 * 200;
+  const body = new Body({
+    mass,
+    shape: new Box(new Vec3(hx, hy, hz)),
+    linearDamping:  damping,
+    angularDamping: damping * 4,
+    sleepSpeedLimit: 0.15,
+    sleepTimeLimit:  1.0,
+  });
+  body.position.set(px, py, pz);
+  body.velocity.set(vx, vy, vz);
+  world.addBody(body);
+
+  objects.push({ mesh, body });
+}
+
+// ─── Initial objects ──────────────────────────────────────────────────────────
+function populateInitial() {
+  for (let i = 0; i < 12; i++) {
+    const x = (Math.random() - 0.5) * 20;
+    const z = (Math.random() - 0.5) * 20;
+    const y = 8 + Math.random() * 14;
+    if (Math.random() < 0.55) {
+      spawnSphere(x, y, z, 0.35 + Math.random() * 0.45);
+    } else {
+      const s = 0.25 + Math.random() * 0.4;
+      spawnBox(x, y, z, s, s * (0.6 + Math.random() * 0.8), s);
+    }
+  }
+}
+populateInitial();
+
+// ─── Physics parameter update ─────────────────────────────────────────────────
+function applyPhysicsParams() {
+  world.gravity.set(0, -gravityMag, 0);
+  world.defaultContactMaterial.friction    = friction;
+  world.defaultContactMaterial.restitution = restitution;
+  // Apply damping to all living bodies and wake them so changes take effect
+  objects.forEach(({ body }) => {
+    body.linearDamping  = damping;
+    body.angularDamping = damping * 2.5;
+    body.wakeUp();
+  });
+}
+
+// ─── Slider wiring ────────────────────────────────────────────────────────────
+function wireSlider(id, labelId, getter, setter, fmt = v => v.toFixed(2)) {
+  const slider = document.getElementById(id);
+  const label  = document.getElementById(labelId);
+  slider.addEventListener('input', () => {
+    setter(parseFloat(slider.value));
+    label.textContent = fmt(parseFloat(slider.value));
+    applyPhysicsParams();
+    // Sync gravity stat display
+    if (id === 'sl-gravity') {
+      document.getElementById('stat-grav-display').textContent = `${parseFloat(slider.value).toFixed(2)} m/s²`;
+    }
+  });
+}
+
+wireSlider('sl-gravity',    'lbl-gravity',    () => gravityMag,  v => { gravityMag  = v; }, v => v.toFixed(2));
+wireSlider('sl-restitution','lbl-restitution',() => restitution, v => { restitution = v; }, v => v.toFixed(2));
+wireSlider('sl-friction',   'lbl-friction',   () => friction,    v => { friction    = v; }, v => v.toFixed(2));
+wireSlider('sl-damping',    'lbl-damping',    () => damping,     v => { damping     = v; }, v => v.toFixed(3));
+wireSlider('sl-speed',      'lbl-speed',      () => launchSpeed, v => { launchSpeed = v; }, v => v.toFixed(0));
+
+// ─── Button controls ──────────────────────────────────────────────────────────
+document.getElementById('btn-sphere').addEventListener('click', () => {
+  const x = (Math.random() - 0.5) * 12;
+  const z = (Math.random() - 0.5) * 12;
+  spawnSphere(x, 22, z, 0.4 + Math.random() * 0.5);
+});
+
+document.getElementById('btn-box').addEventListener('click', () => {
+  const x = (Math.random() - 0.5) * 12;
+  const z = (Math.random() - 0.5) * 12;
+  const s = 0.3 + Math.random() * 0.5;
+  spawnBox(x, 22, z, s, s * (0.5 + Math.random()), s);
+});
+
+document.getElementById('btn-explosion').addEventListener('click', () => {
+  const center = new Vec3(0, GROUND_Y + 1, 0);
+  const strength = 90;
+  objects.forEach(({ body }) => {
+    body.wakeUp();
+    const diff = body.position.vsub(center);
+    const dist = Math.max(diff.length(), 0.5);
+    // applyImpulse(worldImpulse, relativePointOnBody)
+    // Using Vec3(0,0,0) applies at the center of mass — no spurious torque from position offset
+    const impulse = diff.unit().scale(strength * Math.min(8 / dist, 4));
+    body.applyImpulse(impulse, ZERO_VEC);
+  });
+  // Spawn extra debris
+  for (let i = 0; i < 6; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.random() * 1.5;
+    spawnSphere(
+      Math.cos(a) * r, GROUND_Y + 1, Math.sin(a) * r,
+      0.25 + Math.random() * 0.3,
+      (Math.random() - 0.5) * 14,
+      10 + Math.random() * 8,
+      (Math.random() - 0.5) * 14
+    );
+  }
+});
+
+document.getElementById('btn-clear').addEventListener('click', clearAll);
+
+// ─── Click-to-launch (with drag guard) ───────────────────────────────────────
+const raycaster  = new THREE.Raycaster();
+const mouseVec   = new THREE.Vector2();
+let   mouseDownX = 0;
+let   mouseDownY = 0;
+const DRAG_THRESHOLD = 5; // px — moves larger than this are treated as orbit drags
+
+renderer.domElement.addEventListener('mousedown', e => {
+  mouseDownX = e.clientX;
+  mouseDownY = e.clientY;
+});
+
+renderer.domElement.addEventListener('click', e => {
+  const dx = e.clientX - mouseDownX;
+  const dy = e.clientY - mouseDownY;
+  if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) return; // was a drag, not a click
+
+  mouseVec.set(
+    ( e.clientX / window.innerWidth)  * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(mouseVec, camera);
+  const dir = raycaster.ray.direction;
+  const r   = 0.25 + Math.random() * 0.35;
+  // Spawn slightly in front of camera so it doesn't clip through the near plane
+  const origin = camera.position.clone().addScaledVector(dir, 1.5);
+  spawnSphere(
+    origin.x, origin.y, origin.z, r,
+    dir.x * launchSpeed,
+    dir.y * launchSpeed,
+    dir.z * launchSpeed
+  );
+});
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── FPS tracking ─────────────────────────────────────────────────────────────
+const statBodies  = document.getElementById('stat-bodies');
+const statFps     = document.getElementById('stat-fps');
+const statGrav    = document.getElementById('stat-grav-display');
+let   fpsAccum    = 0;
+let   fpsCount    = 0;
+let   fpsLastTime = performance.now();
+
+// ─── Animation loop ───────────────────────────────────────────────────────────
+const FIXED_STEP = 1 / 60;
+const MAX_SUB    = 5; // increased from 3 — prevents tunnelling at high speeds
+let   lastTime   = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const now   = performance.now();
+  const delta = Math.min((now - lastTime) / 1000, 0.1); // cap at 100ms (tab unfocus recovery)
+  lastTime    = now;
+
+  // Step the physics world
+  world.step(FIXED_STEP, delta, MAX_SUB);
+
+  // Sync Three.js mesh transforms from physics bodies
+  for (const { mesh, body } of objects) {
+    mesh.position.copy(body.position);
+    mesh.quaternion.copy(body.quaternion);
+  }
+
+  orbitControls.update();
+  renderer.render(scene, camera);
+
+  // Stats (update every 500ms to avoid DOM thrashing)
+  fpsCount++;
+  fpsAccum = now - fpsLastTime;
+  if (fpsAccum >= 500) {
+    statFps.textContent    = Math.round(fpsCount / (fpsAccum / 1000));
+    statBodies.textContent = objects.length;
+    statGrav.textContent   = `${gravityMag.toFixed(2)} m/s²`;
+    fpsCount               = 0;
+    fpsLastTime            = now;
+  }
+}
